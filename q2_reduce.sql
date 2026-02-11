@@ -53,7 +53,7 @@ WHERE s.country = 'CA' AND d.country = 'CA';
 
 SELECT * FROM res2_reduced ORDER BY src, dst;
 
--- Final check to see if both results are the same
+-- Final check to see if both results are the same (should return 0 rows if they are the same)
 SELECT * FROM (SELECT * FROM res2_base EXCEPT SELECT * FROM res2_reduced)
 UNION ALL
 SELECT * FROM (SELECT * FROM res2_reduced EXCEPT SELECT * FROM res2_base);

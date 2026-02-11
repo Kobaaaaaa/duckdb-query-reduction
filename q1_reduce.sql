@@ -1,6 +1,6 @@
 .read 'C:/Users/ilias/query-reduction/toy_db.sql'
 
--- Benchmark query: 
+-- Benchmark query 1: 
 -- Find all edges where the destination node is in Canada, and return the source and destination labels.
 DROP TABLE IF EXISTS res_base;
 CREATE TEMP TABLE res_base AS
@@ -52,7 +52,7 @@ WHERE d.country = 'CA';
 
 SELECT * FROM res_reduced ORDER BY src, dst;
 
--- Final check to see if both results are the same
+-- Final check to see if both results are the same (should return 0 rows if they are the same)
 SELECT * FROM (SELECT * FROM res_base EXCEPT SELECT * FROM res_reduced)
 UNION ALL
 SELECT * FROM (SELECT * FROM res_reduced EXCEPT SELECT * FROM res_base);
