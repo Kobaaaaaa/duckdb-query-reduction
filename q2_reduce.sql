@@ -1,4 +1,4 @@
-.read 'C:/Users/ilias/query-reduction/toy_db.sql'
+.read './toy_db.sql'
 
 -- Benchmark query 2:
 -- Find all edges where BOTH the source and destination nodes are in Canada, and return the labels.

@@ -1,4 +1,4 @@
-.read 'C:/Users/ilias/query-reduction/toy_db.sql'
+.read './toy_db.sql'
 
 -- Benchmark query 3 (GROUP BY + HAVING):
 -- Count edges going to Canada per source country, keep only countries with >= 2 such edges.
