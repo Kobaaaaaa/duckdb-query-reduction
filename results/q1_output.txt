@@ -1,0 +1,56 @@
+┌───────┬───────┬────────────┬────────────┐
+│  src  │  dst  │ src_label  │ dst_label  │
+│ int32 │ int32 │  varchar   │  varchar   │
+├───────┼───────┼────────────┼────────────┤
+│     4 │     1 │ NYC        │ Montreal   │
+│     4 │     2 │ NYC        │ Toronto    │
+│     4 │     3 │ NYC        │ Vancouver  │
+│     5 │     1 │ Boston     │ Montreal   │
+│     5 │     2 │ Boston     │ Toronto    │
+│     6 │     2 │ SF         │ Toronto    │
+│     6 │     3 │ SF         │ Vancouver  │
+│     7 │     1 │ Paris      │ Montreal   │
+│     8 │     2 │ Lyon       │ Toronto    │
+│     9 │     2 │ Berlin     │ Toronto    │
+│    10 │     1 │ Tokyo      │ Montreal   │
+│    10 │    12 │ Tokyo      │ QuebecCity │
+│    11 │     2 │ SaoPaulo   │ Toronto    │
+│    12 │     1 │ QuebecCity │ Montreal   │
+│    12 │     2 │ QuebecCity │ Toronto    │
+├───────┴───────┴────────────┴────────────┤
+│ 15 rows                       4 columns │
+└─────────────────────────────────────────┘
+┌─────────────────────┬────────────────────┬─────────────────────┬────────────────────┐
+│ original_node_count │ reduced_node_count │ original_edge_count │ reduced_edge_count │
+│        int64        │       int64        │        int64        │       int64        │
+├─────────────────────┼────────────────────┼─────────────────────┼────────────────────┤
+│                  12 │                 12 │                  30 │                 15 │
+└─────────────────────┴────────────────────┴─────────────────────┴────────────────────┘
+┌───────┬───────┬────────────┬────────────┐
+│  src  │  dst  │ src_label  │ dst_label  │
+│ int32 │ int32 │  varchar   │  varchar   │
+├───────┼───────┼────────────┼────────────┤
+│     4 │     1 │ NYC        │ Montreal   │
+│     4 │     2 │ NYC        │ Toronto    │
+│     4 │     3 │ NYC        │ Vancouver  │
+│     5 │     1 │ Boston     │ Montreal   │
+│     5 │     2 │ Boston     │ Toronto    │
+│     6 │     2 │ SF         │ Toronto    │
+│     6 │     3 │ SF         │ Vancouver  │
+│     7 │     1 │ Paris      │ Montreal   │
+│     8 │     2 │ Lyon       │ Toronto    │
+│     9 │     2 │ Berlin     │ Toronto    │
+│    10 │     1 │ Tokyo      │ Montreal   │
+│    10 │    12 │ Tokyo      │ QuebecCity │
+│    11 │     2 │ SaoPaulo   │ Toronto    │
+│    12 │     1 │ QuebecCity │ Montreal   │
+│    12 │     2 │ QuebecCity │ Toronto    │
+├───────┴───────┴────────────┴────────────┤
+│ 15 rows                       4 columns │
+└─────────────────────────────────────────┘
+┌───────┬───────┬───────────┬───────────┐
+│  src  │  dst  │ src_label │ dst_label │
+│ int32 │ int32 │  varchar  │  varchar  │
+├───────┴───────┴───────────┴───────────┤
+│                0 rows                 │
+└───────────────────────────────────────┘
