@@ -4,7 +4,7 @@ SELECT
   title,
   venue,
   llm_complete(
-    {'model_name':'my_model'},
+    {'model_name':'gpt-4o'},
     {
       'prompt': 'Return a 3-6 word topic label for this paper.',
       'context_columns': [
