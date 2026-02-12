@@ -1,0 +1,27 @@
+┌────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────┬────────────────┐
+│                                  author_1                                  │                                 author_2                                 │ n_shared_works │
+│                                  varchar                                   │                                 varchar                                  │     int64      │
+├────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────┼────────────────┤
+│ Nuzzolese, Andrea Giovanni [orcid:0000-0003-2928-9496 omid:ra/06320323954] │ Peroni, Silvio [orcid:0000-0003-0530-4305 omid:ra/0614010840729]         │              2 │
+│ Abu-Jbara, Amjad [omid:ra/06301800955]                                     │ Muthukrishnan, Pradeep [omid:ra/06301800953]                             │              1 │
+│ Abu-Jbara, Amjad [omid:ra/06301800955]                                     │ Qazvinian, Vahed [omid:ra/06301800954]                                   │              1 │
+│ Abu-Jbara, Amjad [omid:ra/06301800955]                                     │ Radev, Dragomir R. [omid:ra/06301800952]                                 │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Chadegani, Arezoo Aghaei [orcid:0000-0002-0081-1044 omid:ra/06105238869] │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Farhadi, Hadi [omid:ra/06105238907]                                      │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Farhadi, Maryam [orcid:0000-0002-8663-9213 omid:ra/0611024310]           │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Fooladi, Masood [omid:ra/06105238908]                                    │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Md, Melor [orcid:0000-0001-7504-7143 omid:ra/06290559051]                │              1 │
+│ Ale Ebrahim, Nader [orcid:0000-0001-7091-4439 omid:ra/0617018816]          │ Salehi, Hadi [orcid:0000-0001-8831-7253 omid:ra/067094358]               │              1 │
+│ Attwood, Teresa K. [omid:ra/061308526336]                                  │ Kell, Douglas [orcid:0000-0001-5838-7963 omid:ra/06410293055]            │              1 │
+│ Attwood, Teresa K. [omid:ra/061308526336]                                  │ Marsh, James [omid:ra/061308526338]                                      │              1 │
+│ Attwood, Teresa K. [omid:ra/061308526336]                                  │ McDermott, Philip [omid:ra/061308526337]                                 │              1 │
+│ Attwood, Teresa K. [omid:ra/061308526336]                                  │ Pettifer, Steve [orcid:0000-0002-1809-5621 omid:ra/061509772]            │              1 │
+│ Attwood, Teresa K. [omid:ra/061308526336]                                  │ Thorne, David [omid:ra/061308526339]                                     │              1 │
+│ Baez, Marcos [orcid:0000-0003-1666-2474 omid:ra/06909439237]               │ Birukou, Aliaksandr [orcid:0000-0002-4925-9131 omid:ra/0611038090]       │              1 │
+│ Baez, Marcos [orcid:0000-0003-1666-2474 omid:ra/06909439237]               │ Casati, Fabio [omid:ra/061508834654]                                     │              1 │
+│ Baez, Marcos [orcid:0000-0003-1666-2474 omid:ra/06909439237]               │ Marchese, Maurizio [orcid:0000-0001-6485-1443 omid:ra/0611013989]        │              1 │
+│ Baez, Marcos [orcid:0000-0003-1666-2474 omid:ra/06909439237]               │ Mussi, Alejandro [omid:ra/061508834653]                                  │              1 │
+│ Baker, Thomas [omid:ra/061704245774]                                       │ Bechhofer, Sean [orcid:0000-0002-5872-3573 omid:ra/0619010527143]        │              1 │
+├────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────┴────────────────┤
+│ 20 rows                                                                                                                                                      3 columns │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

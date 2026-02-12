@@ -1,0 +1,27 @@
+┌──────────────────────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────┬────────────────────┐
+│                                  author_id                                   │                                 author_name                                  │ citations_received │
+│                                   varchar                                    │                                   varchar                                    │       int64        │
+├──────────────────────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────┼────────────────────┤
+│ shotton, d m [orcid:0000-0001-5506-523x omid:ra/0621010775619]               │ Shotton, D M [orcid:0000-0001-5506-523X omid:ra/0621010775619]               │                  6 │
+│ peroni, silvio [orcid:0000-0003-0530-4305 omid:ra/0614010840729]             │ Peroni, Silvio [orcid:0000-0003-0530-4305 omid:ra/0614010840729]             │                  4 │
+│ piwowar, heather [orcid:0000-0003-1613-5981 omid:ra/063011942103]            │ Piwowar, Heather [orcid:0000-0003-1613-5981 omid:ra/063011942103]            │                  3 │
+│ bourne, philip [omid:ra/062405409378]                                        │ Bourne, Philip [omid:ra/062405409378]                                        │                  2 │
+│ carvalho, marilia [orcid:0000-0002-9566-0284 omid:ra/0615010710069]          │ Carvalho, Marilia [orcid:0000-0002-9566-0284 omid:ra/0615010710069]          │                  2 │
+│ felzemburgh, ridalva d. m. [omid:ra/062305700134]                            │ Felzemburgh, Ridalva D. M. [omid:ra/062305700134]                            │                  2 │
+│ ko, albert i. [orcid:0000-0001-9023-2339 omid:ra/0612010591819]              │ Ko, Albert I. [orcid:0000-0001-9023-2339 omid:ra/0612010591819]              │                  2 │
+│ melendez, astrid x. t. o. [omid:ra/062305700137]                             │ Melendez, Astrid X. T. O. [omid:ra/062305700137]                             │                  2 │
+│ miles, alistair [orcid:0000-0001-9018-4680 omid:ra/064013130258]             │ Miles, Alistair [orcid:0000-0001-9018-4680 omid:ra/064013130258]             │                  2 │
+│ mohr, sharif [omid:ra/062305700136]                                          │ Mohr, Sharif [omid:ra/062305700136]                                          │                  2 │
+│ nuzzolese, andrea giovanni [orcid:0000-0003-2928-9496 omid:ra/06320323954]   │ Nuzzolese, Andrea Giovanni [orcid:0000-0003-2928-9496 omid:ra/06320323954]   │                  2 │
+│ pettifer, steve [orcid:0000-0002-1809-5621 omid:ra/061509772]                │ Pettifer, Steve [orcid:0000-0002-1809-5621 omid:ra/061509772]                │                  2 │
+│ queiroz, adriano [omid:ra/062305700138]                                      │ Queiroz, Adriano [omid:ra/062305700138]                                      │                  2 │
+│ ravines, romy r. [omid:ra/062305700140]                                      │ Ravines, Romy R. [omid:ra/062305700140]                                      │                  2 │
+│ reis, mitermayer g. [omid:ra/062305700141]                                   │ Reis, Mitermayer G. [omid:ra/062305700141]                                   │                  2 │
+│ reis, renato b. [omid:ra/062305700133]                                       │ Reis, Renato B. [omid:ra/062305700133]                                       │                  2 │
+│ ribeiro, guilherme [orcid:0000-0002-6798-2059 omid:ra/0622011672840]         │ Ribeiro, Guilherme [orcid:0000-0002-6798-2059 omid:ra/0622011672840]         │                  2 │
+│ santana, francisco s. [omid:ra/062305700135]                                 │ Santana, Francisco S. [omid:ra/062305700135]                                 │                  2 │
+│ santos, andréia c. [omid:ra/062305700139]                                    │ Santos, Andréia C. [omid:ra/062305700139]                                    │                  2 │
+│ tassinari, wagner de souza [orcid:0000-0002-3799-1261 omid:ra/0615010710269] │ Tassinari, Wagner De Souza [orcid:0000-0002-3799-1261 omid:ra/0615010710269] │                  2 │
+├──────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────┴────────────────────┤
+│ 20 rows                                                                                                                                                                3 columns │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
