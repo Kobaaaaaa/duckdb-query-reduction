@@ -1,6 +1,4 @@
 .read sql/00_setup/01_load.sql
-.read sql/00_setup/02_views.sql
-.read sql/00_setup/03_checks.sql
 
 .output results/sql/q01_top_cited.txt
 .read sql/10_benchmarks_sql/q01_top_cited.sql
