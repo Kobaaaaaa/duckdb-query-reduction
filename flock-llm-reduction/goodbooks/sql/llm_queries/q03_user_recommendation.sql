@@ -17,6 +17,6 @@ FROM (
   FROM ratings r
   JOIN books b ON b.book_id = r.book_id
   GROUP BY b.book_id, b.title, b.authors
-  HAVING count(*) >= 100
+  HAVING count(*) >= 1000
 ) AS x -- x is the subquery that calculates the number of ratings and average rating for each book
 ORDER BY x.n_ratings DESC

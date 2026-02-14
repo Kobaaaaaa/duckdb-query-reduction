@@ -362,6 +362,132 @@ class QueryReducer:
         
         return reductions
     
+    def compute_having_aware_reduction(self, query: str) -> Optional[Dict[str, Tuple[int, int, float]]]:
+        """
+        Handle queries with GROUP BY/HAVING by computing actual tuple participation.
+        
+        For patterns like:
+            SELECT ... FROM (
+                SELECT ... FROM child JOIN parent ON child.fk = parent.pk
+                GROUP BY parent.pk, ...
+                HAVING count(*) >= N
+            ) AS x
+        
+        The reduction is computed by:
+        1. Finding which parent PKs survive the HAVING filter
+        2. Counting child rows that reference surviving parents
+        """
+        # Check for HAVING count(*) >= N pattern
+        having_match = re.search(
+            r'HAVING\s+count\s*\(\s*\*\s*\)\s*>=\s*(\d+)',
+            query, re.IGNORECASE
+        )
+        
+        if not having_match:
+            return None  # No HAVING clause, use standard method
+        
+        min_count = int(having_match.group(1))
+        
+        # Find GROUP BY clause
+        group_match = re.search(
+            r'GROUP\s+BY\s+([^HAVING]+)',
+            query, re.IGNORECASE | re.DOTALL
+        )
+        
+        if not group_match:
+            return None
+        
+        group_cols = group_match.group(1).strip()
+        
+        # Find the FROM ... JOIN ... ON pattern
+        join_match = re.search(
+            r'FROM\s+(\w+)\s+(\w+)\s+JOIN\s+(\w+)\s+(\w+)\s+ON\s+(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)',
+            query, re.IGNORECASE
+        )
+        
+        if not join_match:
+            return None
+        
+        # Parse join info
+        from_table = join_match.group(1)
+        from_alias = join_match.group(2)
+        join_table = join_match.group(3)
+        join_alias = join_match.group(4)
+        cond_alias1 = join_match.group(5)
+        cond_col1 = join_match.group(6)
+        cond_alias2 = join_match.group(7)
+        cond_col2 = join_match.group(8)
+        
+        # Determine parent (grouped) vs child table
+        # The table whose alias appears in GROUP BY is the parent
+        if f"{from_alias}." in group_cols or group_cols.startswith(from_alias):
+            parent_table, parent_alias = from_table, from_alias
+            child_table, child_alias = join_table, join_alias
+        elif f"{join_alias}." in group_cols or group_cols.startswith(join_alias):
+            parent_table, parent_alias = join_table, join_alias
+            child_table, child_alias = from_table, from_alias
+        else:
+            return None
+        
+        # Find the key columns from join condition
+        if cond_alias1 == parent_alias:
+            parent_pk_col = cond_col1
+            child_fk_col = cond_col2
+        else:
+            parent_pk_col = cond_col2
+            child_fk_col = cond_col1
+        
+        reductions = {}
+        
+        # Parent table: count how many pass the HAVING filter
+        parent_original = self.table_sizes.get(parent_table, 0)
+        try:
+            parent_reduced = self.conn.execute(f"""
+                SELECT COUNT(*) FROM (
+                    SELECT {parent_alias}.{parent_pk_col}
+                    FROM {child_table} {child_alias}
+                    JOIN {parent_table} {parent_alias} 
+                      ON {child_alias}.{child_fk_col} = {parent_alias}.{parent_pk_col}
+                    GROUP BY {parent_alias}.{parent_pk_col}
+                    HAVING COUNT(*) >= {min_count}
+                ) t
+            """).fetchone()[0]
+        except Exception as e:
+            print(f"⚠ Error computing parent reduction: {e}")
+            parent_reduced = parent_original
+        
+        if parent_original > 0:
+            parent_pct = ((parent_original - parent_reduced) / parent_original) * 100
+        else:
+            parent_pct = 0.0
+        reductions[parent_table] = (parent_original, parent_reduced, parent_pct)
+        
+        # Child table: count rows that reference surviving parents
+        child_original = self.table_sizes.get(child_table, 0)
+        try:
+            child_reduced = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {child_table}
+                WHERE {child_fk_col} IN (
+                    SELECT {parent_alias}.{parent_pk_col}
+                    FROM {child_table} {child_alias}
+                    JOIN {parent_table} {parent_alias} 
+                      ON {child_alias}.{child_fk_col} = {parent_alias}.{parent_pk_col}
+                    GROUP BY {parent_alias}.{parent_pk_col}
+                    HAVING COUNT(*) >= {min_count}
+                )
+            """).fetchone()[0]
+        except Exception as e:
+            print(f"⚠ Error computing child reduction: {e}")
+            child_reduced = child_original
+        
+        if child_original > 0:
+            child_pct = ((child_original - child_reduced) / child_original) * 100
+        else:
+            child_pct = 0.0
+        reductions[child_table] = (child_original, child_reduced, child_pct)
+        
+        return reductions
+    
     def analyze_query(self, query_file: str, show_queries: bool = True):
         """
         Pipeline:
@@ -411,8 +537,15 @@ class QueryReducer:
             print(f"   ✅ Transformed to acyclic graph")
             print()
         
-        # Step 4: Apply Yannakakis semi-join reduction
-        reductions = self.yannakakis_reduction(graph)
+        # Step 4: Try HAVING-aware reduction first, then fall back to Yannakakis
+        reductions = self.compute_having_aware_reduction(baseline_query)
+        
+        if reductions:
+            print("Detected GROUP BY/HAVING pattern - using execution-based analysis")
+            print()
+        else:
+            # Standard Yannakakis semi-join reduction
+            reductions = self.yannakakis_reduction(graph)
         
         # Step 5: Report results
         print("TUPLE REDUCTION ANALYSIS:")
