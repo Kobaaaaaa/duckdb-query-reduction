@@ -1,2 +1,3 @@
-flock-llm-reduction/local/
+flock-llm-reduction/opencitations/local/
+flock-llm-reduction/goodbooks/local/
 **/secrets.sql
