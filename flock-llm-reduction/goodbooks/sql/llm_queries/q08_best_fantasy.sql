@@ -14,4 +14,3 @@ WHERE CAST(bt.count AS INTEGER) >= 1000
 GROUP BY t.tag_name
 HAVING COUNT(DISTINCT b.book_id) >= 2
 ORDER BY num_books DESC
-LIMIT 15;

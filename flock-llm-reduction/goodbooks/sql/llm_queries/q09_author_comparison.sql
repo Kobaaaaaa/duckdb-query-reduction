@@ -25,4 +25,3 @@ FROM (
   HAVING COUNT(DISTINCT a1.book_id) >= 2 AND COUNT(DISTINCT a2.book_id) >= 2
 ) comp
 ORDER BY (comp.avg_rating1 + comp.avg_rating2) DESC
-LIMIT 20;

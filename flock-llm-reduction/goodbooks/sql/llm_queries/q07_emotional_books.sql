@@ -15,4 +15,3 @@ JOIN ratings r ON b.book_id = r.book_id
 GROUP BY b.book_id, b.title, b.authors
 HAVING COUNT(*) >= 2
 ORDER BY avg_rating DESC, num_ratings DESC
-LIMIT 20;
