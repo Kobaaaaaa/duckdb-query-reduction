@@ -35,8 +35,10 @@ class JoinGraph:
     def is_cyclic(self) -> bool:
         """
         Check if join graph is cyclic.
-        A graph is cyclic if: #edges >= #nodes
+        A graph is cyclic if: #edges >= #nodes (and graph is non-empty)
         """
+        if not self.nodes:
+            return False
         return len(self.edges) >= len(self.nodes)
     
     def get_neighbors(self, table: str) -> Set[str]:
@@ -361,10 +363,13 @@ class QueryReducer:
             joined_name = f"{table1}_JOIN_{table2}"
             
             try:
+                # Rewrite join condition to use t1/t2 aliases
+                fold_cond = re.sub(rf'\b{re.escape(table1)}\.', 't1.', join_cond)
+                fold_cond = re.sub(rf'\b{re.escape(table2)}\.', 't2.', fold_cond)
                 self.conn.execute(f"""
                     CREATE TABLE {joined_name} AS
                     SELECT * FROM {table1} t1
-                    JOIN {table2} t2 ON {join_cond}
+                    JOIN {table2} t2 ON {fold_cond}
                 """)
                 
                 # Update graph: remove old tables, add joined table
@@ -372,9 +377,17 @@ class QueryReducer:
                 graph.nodes.remove(table2)
                 graph.nodes.add(joined_name)
                 
-                # Update edges to point to joined table
+                # Update edges: drop the edge between the two folded tables,
+                # redirect remaining edges to the joined table, and rewrite
+                # conditions so old table names point to the joined table.
                 new_edges = []
                 for t1, t2, cond in graph.edges:
+                    # Skip the edge that connected the two now-merged tables
+                    if {t1, t2} == {table1, table2}:
+                        continue
+                    # Rewrite old table names in condition to joined_name
+                    cond = re.sub(rf'\b{re.escape(table1)}\.', f'{joined_name}.', cond)
+                    cond = re.sub(rf'\b{re.escape(table2)}\.', f'{joined_name}.', cond)
                     if t1 == table1 or t1 == table2:
                         new_edges.append((joined_name, t2, cond))
                     elif t2 == table1 or t2 == table2:
@@ -451,23 +464,24 @@ class QueryReducer:
             return cond
 
         # Traverse in REVERSE (bottom-up: leaves to root)
+        # For each child, reduce its PARENT: parent ⋉ child
         for node in reversed(bfs_order[1:]): # skip root (index 0)
             parent = parent_of[node]
-            join_cond = graph.get_join_condition(node, parent)
+            join_cond = graph.get_join_condition(parent, node)
             if join_cond:
-                self.semi_join(node, parent, _rewrite_cond(join_cond, node, parent))
+                self.semi_join(parent, node, _rewrite_cond(join_cond, parent, node))
         
         # ================================================================
         # STEP 2: Top-Down Pass (Root → Leaves)
         # ================================================================
         # Traverse in FORWARD order (top-down: root to leaves)
-        # For each (parent, child) pair: parent ⋉ child
+        # For each child, reduce the CHILD: child ⋉ parent
         
         for node in bfs_order[1:]: # skip root
             parent = parent_of[node]
-            join_cond = graph.get_join_condition(parent, node)
+            join_cond = graph.get_join_condition(node, parent)
             if join_cond:
-                self.semi_join(parent, node, _rewrite_cond(join_cond, parent, node))
+                self.semi_join(node, parent, _rewrite_cond(join_cond, node, parent))
         
         # ================================================================
         # STEP 3: Calculate Reduction Statistics (Definition 2.2)
@@ -522,7 +536,7 @@ class QueryReducer:
         
         # Find GROUP BY clause
         group_match = re.search(
-            r'GROUP\s+BY\s+([^HAVING]+)',
+            r'GROUP\s+BY\s+(.*?)(?=\s+HAVING\b)',
             query, re.IGNORECASE | re.DOTALL
         )
         
