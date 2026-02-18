@@ -83,7 +83,7 @@ class QueryReducer:
         print("=" * 70)
         
         for csv_path in csv_files:
-            table_name = csv_path.stem  # filename without .csv
+            table_name = csv_path.stem # filename without .csv
             try:
                 self.conn.execute(f"DROP TABLE IF EXISTS {table_name}")
                 self.conn.execute(
@@ -92,9 +92,9 @@ class QueryReducer:
                 )
                 count = self.conn.execute(
                     f"SELECT COUNT(*) FROM {table_name}"
-                ).fetchone()[0]
+                ).fetchone()[0] # fetchone() returns a tuple like (count,), so we take [0]
                 self.table_sizes[table_name] = count
-                print(f"✅ {table_name:<20} {count:>10,} rows")
+                print(f"✅ {table_name:<20} {count:>10,} rows") # :> and :< for alignment
             except Exception as e:
                 print(f"❌ {table_name:<20} Error: {e}")
         
@@ -107,6 +107,7 @@ class QueryReducer:
                  llm_first, llm_last, llm_embedding
         """
         # Case 1: conditions before the filter (e.g., "WHERE x = 1 AND llm_filter(...)")
+        # [^)] means any number of characters that are not a closing parenthesis
         query = re.sub(
             r'\s+AND\s+llm_filter\s*\([^)]*\{[^}]*\}[^)]*\{[^}]*\}[^)]*\)',
             '', query, flags=re.DOTALL | re.IGNORECASE
@@ -140,7 +141,7 @@ class QueryReducer:
     
     def _flatten_subqueries(self, query: str) -> str:
         """
-        Replace the *bodies* of all nested parenthesised subqueries with the
+        Replace the bodies of all nested parenthesised subqueries with the
         placeholder token ``_sq_`` so that regex-based parsing can safely
         operate on the top-level SQL structure only.
 
@@ -195,6 +196,7 @@ class QueryReducer:
                     break
             i += 1
 
+        # If FROM keyword not found at depth 0, return query unchanged
         if from_pos == -1:
             return query
 
@@ -223,7 +225,7 @@ class QueryReducer:
         # If the text that follows the subquery at this level contains explicit
         # table JOINs (e.g. ``JOIN books a ON …``) we need to stay at this
         # level so those JOINs are visible to the parser.
-        if re.search(r'\bJOIN\s+\w', rest_of_query, re.IGNORECASE):
+        if re.search(r'\bJOIN\s+\w', rest_of_query, re.IGNORECASE): # \w matches table name after JOIN
             return query
 
         # No table JOINs at this level – recurse into the subquery
@@ -255,12 +257,14 @@ class QueryReducer:
                      else table)
             graph.add_node(table, alias)
 
+        # To find each JOIN block like: JOIN table_name [AS alias] ON <join condition>
         join_pattern = (
             r'(?:INNER\s+)?JOIN\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+'
             r'(.*?)'
             r'(?=\s+(?:INNER\s+)?JOIN\b|\s+WHERE\b|\s+GROUP\b'
             r'|\s+ORDER\b|\s+HAVING\b|\s+LIMIT\b|\s*$)'
         )
+
         for match in re.finditer(join_pattern, flat_query, re.IGNORECASE | re.DOTALL):
             table = match.group(1)
             raw_alias = match.group(2)
