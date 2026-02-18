@@ -271,7 +271,7 @@ class QueryReducer:
             # Discard captured word if it is a SQL keyword
             alias = (raw_alias if raw_alias and raw_alias.upper() not in SQL_KEYWORDS
                      else table)
-            join_cond = match.group(3).strip()
+            join_cond = match.group(3).strip() # E.g. "a.id = b.author_id"
             
             graph.add_node(table, alias)
             
@@ -283,6 +283,7 @@ class QueryReducer:
                 t2 = self._alias_to_table(alias2, graph)
                 if t1 and t2:
                     # Normalize condition to use table names instead of aliases
+                    # E.g. "b.id = a.id" becomes "books.id = authors.id" if b->books, a->authors
                     cond_normalized = re.sub(
                         rf'\b{re.escape(alias1)}\.', f'{t1}.', join_cond
                     )
@@ -294,8 +295,14 @@ class QueryReducer:
         return graph
     
     def _alias_to_table(self, alias: str, graph: JoinGraph) -> Optional[str]:
-        """Map alias back to actual table name."""
-        for table, table_alias in graph.aliases.items():
+        """
+        Map alias back to actual table name.
+
+        This is needed because join conditions may reference table aliases (e.g., 'a.id', 'b.id')
+        but we need to normalize them to actual table names (e.g., 'books.id', 'authors.id')
+        for semi-join operations to work correctly.
+        """
+        for table, table_alias in graph.aliases.items(): # .items() gives the (k, v) pairs
             if table_alias == alias:
                 return table
         # Check if alias is actually a table name
