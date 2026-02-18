@@ -136,22 +136,135 @@ class QueryReducer:
         
         return query
     
+    def _flatten_subqueries(self, query: str) -> str:
+        """
+        Replace the *bodies* of all nested parenthesised subqueries with the
+        placeholder token ``_sq_`` so that regex-based parsing can safely
+        operate on the top-level SQL structure only.
+
+        Example:
+            ``FROM (SELECT * FROM foo) t  JOIN bar ON ...``
+            becomes
+            ``FROM (_sq_) t  JOIN bar ON ...``
+        """
+        result = []
+        depth = 0
+        for c in query:
+            if c == '(':
+                if depth == 0:
+                    result.append('(_sq_)') # placeholder for the whole subquery group
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            else:
+                if depth == 0:
+                    result.append(c)
+        return ''.join(result)
+
+    def _extract_base_query(self, query: str) -> str:
+        """
+        If the outermost FROM clause is a subquery wrapper
+        (``FROM (SELECT …) alias``) and no additional table JOINs follow it at
+        the same level, drill recursively into the subquery until we reach a
+        level that either (a) has a table name directly after FROM, or (b) has
+        explicit ``JOIN <table>`` clauses after an inner subquery.
+
+        This handles patterns like::
+
+            SELECT … FROM (SELECT … FROM books b JOIN …) candidates
+
+        so that ``parse_join_graph`` can see the base tables.
+        """
+        # Walk at depth 0 to find the top-level FROM keyword
+        depth = 0
+        from_pos = -1
+        i = 0
+        while i < len(query):
+            c = query[i]
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            elif depth == 0 and query[i:i + 4].upper() == 'FROM':
+                prev_ok = (i == 0 or not query[i - 1].isalpha())
+                next_ok = (i + 4 >= len(query) or not query[i + 4].isalpha())
+                if prev_ok and next_ok:
+                    from_pos = i
+                    break
+            i += 1
+
+        if from_pos == -1:
+            return query
+
+        # Skip whitespace after FROM
+        j = from_pos + 4
+        while j < len(query) and query[j] in ' \t\n\r':
+            j += 1
+
+        if j >= len(query) or query[j] != '(':
+            return query # FROM is followed by a table name, nothing to unwrap
+
+        # Extract the subquery body (matching parens)
+        j += 1 # step past the opening '('
+        depth = 1
+        start = j
+        while j < len(query) and depth > 0:
+            if query[j] == '(':
+                depth += 1
+            elif query[j] == ')':
+                depth -= 1
+            j += 1
+
+        inner = query[start:j - 1].strip()
+        rest_of_query = query[j:]
+
+        # If the text that follows the subquery at this level contains explicit
+        # table JOINs (e.g. ``JOIN books a ON …``) we need to stay at this
+        # level so those JOINs are visible to the parser.
+        if re.search(r'\bJOIN\s+\w', rest_of_query, re.IGNORECASE):
+            return query
+
+        # No table JOINs at this level – recurse into the subquery
+        return self._extract_base_query(inner)
+
     def parse_join_graph(self, query: str) -> JoinGraph:
         """Extract join graph from query (tables, joins, and conditions)."""
         graph = JoinGraph()
-        
-        # Extract FROM clause
-        from_match = re.search(r'FROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', query, re.IGNORECASE)
+
+        # Normalize query structure for parsing
+        query = self._extract_base_query(query)
+        flat_query = self._flatten_subqueries(query)
+
+        # SQL keywords that must never be mistaken for an alias
+        SQL_KEYWORDS = {
+            'JOIN', 'WHERE', 'GROUP', 'ORDER', 'HAVING', 'LIMIT',
+            'ON', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'OUTER', 'CROSS',
+            'SELECT', 'FROM', 'AS', 'SET', 'AND', 'OR', 'NOT',
+        }
+
+        # Extract FROM clause (operates on the flattened query so that the inner
+        # FROM clauses inside subqueries are not accidentally matched
+        from_match = re.search(r'FROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', flat_query, re.IGNORECASE)
         if from_match:
             table = from_match.group(1)
-            alias = from_match.group(2) if from_match.group(2) else table
+            raw_alias = from_match.group(2)
+            # Discard captured word if it is a SQL keyword
+            alias = (raw_alias if raw_alias and raw_alias.upper() not in SQL_KEYWORDS
+                     else table)
             graph.add_node(table, alias)
-        
-        # Extract JOINs
-        join_pattern = r'(?:INNER\s+)?JOIN\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+([^JOIN]+?)(?=(?:JOIN|WHERE|GROUP|ORDER|HAVING|LIMIT|$))'
-        for match in re.finditer(join_pattern, query, re.IGNORECASE | re.DOTALL):
+
+        join_pattern = (
+            r'(?:INNER\s+)?JOIN\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?\s+ON\s+'
+            r'(.*?)'
+            r'(?=\s+(?:INNER\s+)?JOIN\b|\s+WHERE\b|\s+GROUP\b'
+            r'|\s+ORDER\b|\s+HAVING\b|\s+LIMIT\b|\s*$)'
+        )
+        for match in re.finditer(join_pattern, flat_query, re.IGNORECASE | re.DOTALL):
             table = match.group(1)
-            alias = match.group(2) if match.group(2) else table
+            raw_alias = match.group(2)
+            # Discard captured word if it is a SQL keyword
+            alias = (raw_alias if raw_alias and raw_alias.upper() not in SQL_KEYWORDS
+                     else table)
             join_cond = match.group(3).strip()
             
             graph.add_node(table, alias)
@@ -163,7 +276,14 @@ class QueryReducer:
                 t1 = self._alias_to_table(alias1, graph)
                 t2 = self._alias_to_table(alias2, graph)
                 if t1 and t2:
-                    graph.add_edge(t1, t2, join_cond)
+                    # Normalize condition to use table names instead of aliases
+                    cond_normalized = re.sub(
+                        rf'\b{re.escape(alias1)}\.', f'{t1}.', join_cond
+                    )
+                    cond_normalized = re.sub(
+                        rf'\b{re.escape(alias2)}\.', f'{t2}.', cond_normalized
+                    )
+                    graph.add_edge(t1, t2, cond_normalized)
         
         return graph
     
@@ -293,13 +413,16 @@ class QueryReducer:
         # ================================================================
         # STEP 1: Bottom-Up Pass (Leaves → Root)
         # ================================================================
-        # Perform BFS to establish traversal order, then traverse in REVERSE
-        # For each (child, parent) pair: child ⋉ parent
-        # This reduces each child to tuples that join with its parent
+        # BFS to build the traversal order AND record each node's parent in
+        # the BFS spanning tree.  Using consecutive BFS pairs as parent/child
+        # is only correct for chains; for general trees the parent pointer
+        # must be tracked explicitly.
         
         visited = set()
         queue = deque([root])
         bfs_order = []
+        # Track explicit parent relationships
+        parent_of: Dict[str, Optional[str]] = {root: None}
         
         while queue:
             node = queue.popleft()
@@ -310,32 +433,41 @@ class QueryReducer:
             
             for neighbor in graph.get_neighbors(node):
                 if neighbor not in visited:
+                    # Record parent before enqueueing
+                    parent_of[neighbor] = node
                     queue.append(neighbor)
         
+        def _rewrite_cond(cond: str, left_table: str, right_table: str) -> str:
+            """
+            Replace exact table-name prefixes with the l./r. aliases that
+            semi_join() expects.
+
+            Using re.sub with a word boundary (\b) prevents a shorter name
+            that is a suffix of a longer one (e.g. 'tags' inside 'book_tags')
+            from being incorrectly replaced by plain str.replace.
+            """
+            cond = re.sub(rf'\b{re.escape(left_table)}\.', 'l.', cond)
+            cond = re.sub(rf'\b{re.escape(right_table)}\.', 'r.', cond)
+            return cond
+
         # Traverse in REVERSE (bottom-up: leaves to root)
-        for i in range(len(bfs_order) - 1, 0, -1):
-            child = bfs_order[i]
-            parent = bfs_order[i-1]
-            join_cond = graph.get_join_condition(child, parent)
+        for node in reversed(bfs_order[1:]): # skip root (index 0)
+            parent = parent_of[node]
+            join_cond = graph.get_join_condition(node, parent)
             if join_cond:
-                # Rewrite join condition to use current table names
-                join_cond_rewritten = join_cond.replace('l.', f'{child}.').replace('r.', f'{parent}.')
-                self.semi_join(child, parent, join_cond_rewritten)
+                self.semi_join(node, parent, _rewrite_cond(join_cond, node, parent))
         
         # ================================================================
         # STEP 2: Top-Down Pass (Root → Leaves)
         # ================================================================
         # Traverse in FORWARD order (top-down: root to leaves)
         # For each (parent, child) pair: parent ⋉ child
-        # This reduces each parent to tuples that join with its children
         
-        for i in range(len(bfs_order) - 1):
-            parent = bfs_order[i]
-            child = bfs_order[i+1]
-            join_cond = graph.get_join_condition(parent, child)
+        for node in bfs_order[1:]: # skip root
+            parent = parent_of[node]
+            join_cond = graph.get_join_condition(parent, node)
             if join_cond:
-                join_cond_rewritten = join_cond.replace('l.', f'{parent}.').replace('r.', f'{child}.')
-                self.semi_join(parent, child, join_cond_rewritten)
+                self.semi_join(parent, node, _rewrite_cond(join_cond, parent, node))
         
         # ================================================================
         # STEP 3: Calculate Reduction Statistics (Definition 2.2)
@@ -377,14 +509,14 @@ class QueryReducer:
         1. Finding which parent PKs survive the HAVING filter
         2. Counting child rows that reference surviving parents
         """
-        # Check for HAVING count(*) >= N pattern
+        # Also match HAVING COUNT(DISTINCT col) >= N
         having_match = re.search(
-            r'HAVING\s+count\s*\(\s*\*\s*\)\s*>=\s*(\d+)',
+            r'HAVING\s+count\s*\(\s*(?:DISTINCT\s+[\w.]+|\*)\s*\)\s*>=\s*(\d+)',
             query, re.IGNORECASE
         )
         
         if not having_match:
-            return None  # No HAVING clause, use standard method
+            return None # No HAVING clause, use standard method
         
         min_count = int(having_match.group(1))
         
@@ -488,6 +620,80 @@ class QueryReducer:
         
         return reductions
     
+    def _apply_local_predicates(self, base_query: str, graph: 'JoinGraph'):
+        """
+        Apply non-join WHERE predicates to pre-filter tables in place BEFORE
+        Yannakakis semi-joins run.
+
+        This is the "selection pushdown" step that Yannakakis requires:
+        local predicates (those referencing only one table) must be applied
+        first so the algorithm can propagate the resulting reduction through
+        the rest of the join graph via semi-joins.
+
+        Example: WHERE lower(t.tag_name) LIKE '%mystery%'
+            -> filters `tags` down to only mystery-related tags FIRST
+            -> semi-joins then cascade that reduction to book_tags, then books
+
+        Without this step, every table in a densely-connected schema shows
+        0 % reduction because almost every row joins with something.
+        """
+        # Build alias -> table mapping from graph.aliases (which stores table->alias)
+        alias_to_table = {alias: table for table, alias in graph.aliases.items()}
+        # Tables with no alias use their own name, add them too
+        for table in graph.nodes:
+            if table not in graph.aliases:
+                alias_to_table[table] = table
+
+        # Extract the WHERE clause body from the base query
+        where_match = re.search(
+            r'\bWHERE\b(.*?)(?=\bGROUP\b|\bORDER\b|\bHAVING\b|\bLIMIT\b|\s*$)',
+            base_query, re.IGNORECASE | re.DOTALL
+        )
+        if not where_match:
+            return
+        where_body = where_match.group(1).strip()
+
+        # Process tables that have an explicit alias
+        for table, alias in graph.aliases.items():
+            alias_pat = rf'\b{re.escape(alias)}\.' 
+            if not re.search(alias_pat, where_body, re.IGNORECASE):
+                continue
+            # Skip if another join-table alias also appears (would be a join condition)
+            other_aliases = [a for t, a in graph.aliases.items() if t != table and a != alias]
+            if any(re.search(rf'\b{re.escape(oa)}\.', where_body, re.IGNORECASE)
+                   for oa in other_aliases):
+                continue
+            # Rewrite alias.col -> table.col and apply as a filter
+            predicate = re.sub(alias_pat, f'{table}.', where_body, flags=re.IGNORECASE)
+            try:
+                temp = f"{table}_filtered"
+                self.conn.execute(f"DROP TABLE IF EXISTS {temp}")
+                self.conn.execute(f"CREATE TABLE {temp} AS SELECT * FROM {table} WHERE {predicate}")
+                self.conn.execute(f"DROP TABLE {table}")
+                self.conn.execute(f"ALTER TABLE {temp} RENAME TO {table}")
+            except Exception as e:
+                print(f"  Could not apply local predicate to {table}: {e}")
+
+        # Process tables with no alias (referenced directly as tablename.col)
+        for table in graph.nodes:
+            if table in graph.aliases:
+                continue  # already handled above
+            tbl_pat = rf'\b{re.escape(table)}\.' 
+            if not re.search(tbl_pat, where_body, re.IGNORECASE):
+                continue
+            other_tables = [t for t in graph.nodes if t != table]
+            if any(re.search(rf'\b{re.escape(ot)}\.', where_body, re.IGNORECASE)
+                   for ot in other_tables):
+                continue
+            try:
+                temp = f"{table}_filtered"
+                self.conn.execute(f"DROP TABLE IF EXISTS {temp}")
+                self.conn.execute(f"CREATE TABLE {temp} AS SELECT * FROM {table} WHERE {where_body}")
+                self.conn.execute(f"DROP TABLE {table}")
+                self.conn.execute(f"ALTER TABLE {temp} RENAME TO {table}")
+            except Exception as e:
+                print(f"  Could not apply local predicate to {table}: {e}")
+
     def analyze_query(self, query_file: str, show_queries: bool = True):
         """
         Pipeline:
@@ -522,6 +728,22 @@ class QueryReducer:
             print(baseline_query.strip())
             print()
         
+        # LIMIT: the LLM only processes at most N rows regardless of table sizes
+        limit_match = re.search(r'\bLIMIT\s+(\d+)\b', baseline_query, re.IGNORECASE)
+        if limit_match:
+            limit_n = int(limit_match.group(1))
+            print(f"⚠ Note: Query contains LIMIT {limit_n:,}.")
+            print(f"   The LLM function will process at most {limit_n:,} result rows,")
+            print(f"   regardless of the table-level reduction percentages shown below.")
+            print()
+
+        # CROSS JOIN: Cartesian products can't be reduced by semi-joins
+        if re.search(r'\bCROSS\s+JOIN\b', baseline_query, re.IGNORECASE):
+            print("⚠ Note: Query contains a CROSS JOIN.")
+            print("   Yannakakis semi-join reduction does not apply to Cartesian products.")
+            print("   Tuple counts shown below are the *full* table sizes (0 % reduction).")
+            print()
+
         # Step 2: Parse join graph from baseline query
         graph = self.parse_join_graph(baseline_query)
         
@@ -544,6 +766,9 @@ class QueryReducer:
             print("Detected GROUP BY/HAVING pattern - using execution-based analysis")
             print()
         else:
+            # Apply local WHERE predicates first (selection pushdown)
+            base_query_for_preds = self._extract_base_query(baseline_query)
+            self._apply_local_predicates(base_query_for_preds, graph)
             # Standard Yannakakis semi-join reduction
             reductions = self.yannakakis_reduction(graph)
         
