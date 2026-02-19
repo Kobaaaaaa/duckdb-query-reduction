@@ -172,7 +172,7 @@ class QueryReducer:
         level that either (a) has a table name directly after FROM, or (b) has
         explicit ``JOIN <table>`` clauses after an inner subquery.
 
-        This handles patterns like::
+        This handles patterns like:
 
             SELECT … FROM (SELECT … FROM books b JOIN …) candidates
 
@@ -228,8 +228,8 @@ class QueryReducer:
         if re.search(r'\bJOIN\s+\w', rest_of_query, re.IGNORECASE): # \w matches table name after JOIN
             return query
 
-        # No table JOINs at this level – recurse into the subquery
-        return self._extract_base_query(inner)
+        # No table JOINs at this level, recurse into the subquery
+        return self._extract_base_query(inner) # Returns the innermost subquery body that contains the base tables
 
     def parse_join_graph(self, query: str) -> JoinGraph:
         """Extract join graph from query (tables, joins, and conditions)."""
@@ -374,9 +374,13 @@ class QueryReducer:
             joined_name = f"{table1}_JOIN_{table2}"
             
             try:
-                # Rewrite join condition to use t1/t2 aliases
-                fold_cond = re.sub(rf'\b{re.escape(table1)}\.', 't1.', join_cond)
-                fold_cond = re.sub(rf'\b{re.escape(table2)}\.', 't2.', fold_cond)
+                # Rewrite join condition to use t1/t2 aliases because the CREATE TABLE
+                # statement aliases the tables as t1 and t2, so the join condition must
+                # reference these aliases instead of the original table names.
+                # E.g. table1 = "books", table2 = "authors", join_cond = "books.author_id = authors.id"
+                # becomes "t1.author_id = t2.id"
+                fold_cond = re.sub(rf'\b{re.escape(table1)}\.', 't1.', join_cond) # tabl1.col -> t1.col
+                fold_cond = re.sub(rf'\b{re.escape(table2)}\.', 't2.', fold_cond) # table2.col -> t2.col
                 self.conn.execute(f"""
                     CREATE TABLE {joined_name} AS
                     SELECT * FROM {table1} t1
@@ -396,7 +400,7 @@ class QueryReducer:
                     # Skip the edge that connected the two now-merged tables
                     if {t1, t2} == {table1, table2}:
                         continue
-                    # Rewrite old table names in condition to joined_name
+                    # If a condition said table1.col or table2.col, rewrite it to joined_name.col
                     cond = re.sub(rf'\b{re.escape(table1)}\.', f'{joined_name}.', cond)
                     cond = re.sub(rf'\b{re.escape(table2)}\.', f'{joined_name}.', cond)
                     if t1 == table1 or t1 == table2:
@@ -469,6 +473,9 @@ class QueryReducer:
             Using re.sub with a word boundary (\b) prevents a shorter name
             that is a suffix of a longer one (e.g. 'tags' inside 'book_tags')
             from being incorrectly replaced by plain str.replace.
+
+            Example: if left_table='books' and right_table='authors', then
+            "books.author_id = authors.id" becomes "l.author_id = r.id"
             """
             cond = re.sub(rf'\b{re.escape(left_table)}\.', 'l.', cond)
             cond = re.sub(rf'\b{re.escape(right_table)}\.', 'r.', cond)
@@ -533,8 +540,13 @@ class QueryReducer:
         The reduction is computed by:
         1. Finding which parent PKs survive the HAVING filter
         2. Counting child rows that reference surviving parents
+        
+        Returns:
+            Dict[str, Tuple[int, int, float]]: Mapping of table names to 
+            (original_size, reduced_size, reduction_pct) tuples, or None if 
+            query does not match the expected GROUP BY/HAVING pattern.
         """
-        # Also match HAVING COUNT(DISTINCT col) >= N
+        # Match HAVING count(*) >= N or HAVING count(DISTINCT col) >= N 
         having_match = re.search(
             r'HAVING\s+count\s*\(\s*(?:DISTINCT\s+[\w.]+|\*)\s*\)\s*>=\s*(\d+)',
             query, re.IGNORECASE
@@ -543,7 +555,7 @@ class QueryReducer:
         if not having_match:
             return None # No HAVING clause, use standard method
         
-        min_count = int(having_match.group(1))
+        min_count = int(having_match.group(1)) # The N in "HAVING count(*) >= N"
         
         # Find GROUP BY clause
         group_match = re.search(
@@ -554,7 +566,7 @@ class QueryReducer:
         if not group_match:
             return None
         
-        group_cols = group_match.group(1).strip()
+        group_cols = group_match.group(1).strip() # E.g. "c.id"
         
         # Find the FROM ... JOIN ... ON pattern
         join_match = re.search(
