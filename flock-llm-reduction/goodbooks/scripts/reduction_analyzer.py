@@ -99,6 +99,9 @@ class QueryReducer:
                 print(f"❌ {table_name:<20} Error: {e}")
         
         print()
+        # Snapshot the freshly-loaded tables so each query analysis can
+        # start from a clean, unmodified copy.
+        self._snapshot_tables()
     
     def remove_llm_calls(self, query: str) -> str:
         """
@@ -731,6 +734,44 @@ class QueryReducer:
             except Exception as e:
                 print(f"  Could not apply local predicate to {table}: {e}")
 
+    def _snapshot_tables(self) -> None:
+        """
+        Create backup copies of every base table so we can restore them
+        after each query analysis (preventing inter-query state pollution).
+        Each backup is stored as  <table>__snapshot  in the same connection.
+        """
+        for table in list(self.table_sizes.keys()):
+            snap = f"{table}__snapshot"
+            self.conn.execute(f"DROP TABLE IF EXISTS {snap}")
+            self.conn.execute(f"CREATE TABLE {snap} AS SELECT * FROM {table}")
+
+    def _restore_tables(self) -> None:
+        """
+        Restore every base table from its snapshot and drop any extra tables
+        created during analysis (folded join tables, temp reduced tables, …).
+        """
+        base_tables = set(self.table_sizes.keys())
+        # Find all tables currently in the connection
+        all_tables = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main'"
+            ).fetchall()
+        }
+        # Drop anything that isn't a base table or its snapshot
+        for tbl in all_tables:
+            if tbl not in base_tables and not tbl.endswith("__snapshot"):
+                try:
+                    self.conn.execute(f"DROP TABLE IF EXISTS {tbl}")
+                except Exception:
+                    pass
+        # Restore base tables from snapshots
+        for table in base_tables:
+            snap = f"{table}__snapshot"
+            self.conn.execute(f"DROP TABLE IF EXISTS {table}")
+            self.conn.execute(f"CREATE TABLE {table} AS SELECT * FROM {snap}")
+
     def analyze_query(self, query_file: str, show_queries: bool = True):
         """
         Pipeline:
@@ -739,7 +780,14 @@ class QueryReducer:
         3. If cyclic, fold until acyclic (Algorithm 3)
         4. Apply Yannakakis reduction (Algorithm 2)
         5. Report reduction statistics
+
+        Tables are snapshotted before analysis and fully restored afterwards
+        so that running multiple queries in sequence produces the same results
+        as running each query individually.
         """
+        # Restore tables to their original state before every query
+        self._restore_tables()
+
         query_path = Path(query_file)
         
         print("=" * 70)
