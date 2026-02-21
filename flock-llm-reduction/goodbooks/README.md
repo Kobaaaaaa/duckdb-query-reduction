@@ -87,8 +87,15 @@ python scripts/reduction_analyzer.py (Get-ChildItem sql/llm_queries/*.sql) --dat
 ```
 
 ## Tests
-You can run the unit tests for the reduction analyzer with:
 
+Use `python -m pytest` rather than `pytest` to avoid PATH issues on Windows.
+
+**Quiet mode:**
 ```bash
-pytest -q scripts/test_reduction_analyzer.py
+python -m pytest -q scripts/test_reduction_analyzer.py
+```
+
+**Verbose mode:**
+```bash
+python -m pytest -v scripts/test_reduction_analyzer.py
 ```
