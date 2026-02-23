@@ -10,7 +10,7 @@ This folder provides:
 
 ## Dataset
 
-[Goodbooks-10k](https://www.kaggle.com/datasets/zygmuntz/goodbooks-10k) contains ratings for 10,000 popular books from Goodreads — ~1 million ratings across 53,424 users. Key files:
+[Goodbooks-10k](https://www.kaggle.com/datasets/zygmunt/goodbooks-10k) contains ratings for 10,000 popular books from Goodreads — ~1 million ratings across 53,424 users. Key files:
 
 - **ratings.csv** — user ratings (1–5 stars): `book_id, user_id, rating`
 - **books.csv** — metadata: title, author, year, average rating, etc.
