@@ -1,9 +1,0 @@
-┌──────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────┬───────────────┐
-│             doi              │                                               title                                                │ out_citations │
-│           varchar            │                                              varchar                                               │     int64     │
-├──────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼───────────────┤
-│ 10.1108/jd-12-2013-0166      │ Setting Our Bibliographic References Free: Towards Open Citation Data                              │            44 │
-│ 10.1371/journal.pcbi.1000361 │ Adventures In Semantic Publishing: Exemplar Semantic Enhancements Of A Research Article            │            25 │
-│ 10.5539/ass.v9n5p18          │ A Comparison Between Two Main Academic Literature Collections: Web Of Science And Scopus Databases │             2 │
-│ 10.1371/journal.pcbi.0010034 │ Will A Biological Database Be Different From A Biological Journal?                                 │             1 │
-└──────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┴───────────────┘
