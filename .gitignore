@@ -1,3 +1,4 @@
 **/local/secrets.sql
 **/local/*.sql
 /flock-llm-reduction/opencitations/*
+flock-llm-reduction/tools/__pycache__/*
