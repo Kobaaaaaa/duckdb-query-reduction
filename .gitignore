@@ -1,5 +1,2 @@
-flock-llm-reduction/opencitations/local/
-flock-llm-reduction/goodbooks/local/
-flock-llm-reduction/openflights/local/
-**/secrets.sql
-flock-llm-reduction/goodbooks/scripts/__pycache__/
+**/local/secrets.sql
+**/local/*.sql
