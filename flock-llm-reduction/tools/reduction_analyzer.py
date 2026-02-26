@@ -280,7 +280,12 @@ class QueryReducer:
             
             # Parse join condition to find connected tables
             # e.g., "a.id = b.id" -> connects tables with aliases a and b
-            cond_parts = re.findall(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', join_cond)
+            # For parsing, strip CAST/TRY_CAST wrappers to handle:
+            # TRY_CAST(r.airline_id AS INTEGER) = TRY_CAST(al.airline_id AS INTEGER)
+            # But we keep the original join_cond for actual SQL execution (needs the casts)
+            clean_cond = re.sub(r'TRY_CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1', join_cond, flags=re.IGNORECASE)
+            clean_cond = re.sub(r'CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1', clean_cond, flags=re.IGNORECASE)
+            cond_parts = re.findall(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', clean_cond)
             for alias1, col1, alias2, col2 in cond_parts:
                 t1 = self._alias_to_table(alias1, graph)
                 t2 = self._alias_to_table(alias2, graph)
