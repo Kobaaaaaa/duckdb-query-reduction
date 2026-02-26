@@ -693,18 +693,32 @@ class QueryReducer:
             return
         where_body = where_match.group(1).strip()
 
+        # Split WHERE clause into individual AND conditions
+        conditions = re.split(r'\bAND\b', where_body, flags=re.IGNORECASE)
+        conditions = [c.strip() for c in conditions if c.strip()]
+
         # Process tables that have an explicit alias
         for table, alias in graph.aliases.items():
-            alias_pat = rf'\b{re.escape(alias)}\.' 
-            if not re.search(alias_pat, where_body, re.IGNORECASE):
-                continue
-            # Skip if another join-table alias also appears (would be a join condition)
+            alias_pat = rf'\b{re.escape(alias)}\.'
             other_aliases = [a for t, a in graph.aliases.items() if t != table and a != alias]
-            if any(re.search(rf'\b{re.escape(oa)}\.', where_body, re.IGNORECASE)
-                   for oa in other_aliases):
+            
+            # Collect conditions that apply only to this table (no other aliases)
+            local_conditions = []
+            for cond in conditions:
+                # Check if this condition references this alias
+                if re.search(alias_pat, cond, re.IGNORECASE):
+                    # Check if it also references other aliases (would be a join condition)
+                    has_other = any(re.search(rf'\b{re.escape(oa)}\.', cond, re.IGNORECASE)
+                                  for oa in other_aliases)
+                    if not has_other:
+                        local_conditions.append(cond)
+            
+            if not local_conditions:
                 continue
-            # Rewrite alias.col -> table.col and apply as a filter
-            predicate = re.sub(alias_pat, f'{table}.', where_body, flags=re.IGNORECASE)
+                
+            # Combine conditions and rewrite alias.col -> table.col
+            combined_predicate = ' AND '.join(local_conditions)
+            predicate = re.sub(alias_pat, f'{table}.', combined_predicate, flags=re.IGNORECASE)
             try:
                 temp = f"{table}_filtered"
                 self.conn.execute(f"DROP TABLE IF EXISTS {temp}")
@@ -718,17 +732,32 @@ class QueryReducer:
         for table in graph.nodes:
             if table in graph.aliases:
                 continue  # already handled above
-            tbl_pat = rf'\b{re.escape(table)}\.' 
-            if not re.search(tbl_pat, where_body, re.IGNORECASE):
+            tbl_pat = rf'\b{re.escape(table)}\.'
+            
+            # Collect other table names and all aliases
+            other_identifiers = [t for t in graph.nodes if t != table]
+            other_identifiers.extend(graph.aliases.values())  # add all aliases
+            
+            # Collect conditions that apply only to this table (no other tables/aliases)
+            local_conditions = []
+            for cond in conditions:
+                # Check if this condition references this table
+                if re.search(tbl_pat, cond, re.IGNORECASE):
+                    # Check if it also references other tables or aliases
+                    has_other = any(re.search(rf'\b{re.escape(oi)}\.', cond, re.IGNORECASE)
+                                  for oi in other_identifiers)
+                    if not has_other:
+                        local_conditions.append(cond)
+            
+            if not local_conditions:
                 continue
-            other_tables = [t for t in graph.nodes if t != table]
-            if any(re.search(rf'\b{re.escape(ot)}\.', where_body, re.IGNORECASE)
-                   for ot in other_tables):
-                continue
+                
+            # Combine conditions (already use table.col notation)
+            combined_predicate = ' AND '.join(local_conditions)
             try:
                 temp = f"{table}_filtered"
                 self.conn.execute(f"DROP TABLE IF EXISTS {temp}")
-                self.conn.execute(f"CREATE TABLE {temp} AS SELECT * FROM {table} WHERE {where_body}")
+                self.conn.execute(f"CREATE TABLE {temp} AS SELECT * FROM {table} WHERE {combined_predicate}")
                 self.conn.execute(f"DROP TABLE {table}")
                 self.conn.execute(f"ALTER TABLE {temp} RENAME TO {table}")
             except Exception as e:
