@@ -42,12 +42,12 @@ Each query's analysis is fully isolated, so the tables are reset to their origin
 
 Linux / macOS:
 ```powershell
-python scripts/reduction_analyzer.py sql/llm_queries/*.sql --data-dir data/original_data
+python ../tools/reduction_analyzer.py sql/llm_queries/*.sql --data-dir data/original_data
 ```
 
 Windows — PowerShell:
 ```powershell
-python scripts/reduction_analyzer.py (Get-ChildItem sql/llm_queries/*.sql) --data-dir data/original_data
+python ..\tools\reduction_analyzer.py (Get-ChildItem sql\llm_queries\*.sql) --data-dir data\original_data
 ```
 
 ## Tests
