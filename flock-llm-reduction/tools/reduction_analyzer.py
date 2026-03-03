@@ -255,7 +255,7 @@ class QueryReducer:
             'SELECT', 'FROM', 'AS', 'SET', 'AND', 'OR', 'NOT',
         }
 
-        # ── Phase 1: collect all (table, alias, join_cond) references ────
+        # Phase 1: collect all (table, alias, join_cond) references
         # Scan the query first so we can detect self-joins (same table
         # appearing more than once) before building the graph.
         table_refs: List[Tuple[str, Optional[str], Optional[str]]] = []
@@ -290,7 +290,7 @@ class QueryReducer:
             _tbl_counts[tbl] += 1
         self_join_tables = {t for t, c in _tbl_counts.items() if c > 1}
 
-        # ── Phase 2: register nodes ──────────────────────────────────────
+        # Phase 2: register nodes
         # For self-joined tables each occurrence becomes its own node
         # (named by its SQL alias).  For normal tables the node name
         # is the table name itself, preserving backward compatibility.
@@ -321,7 +321,7 @@ class QueryReducer:
                     alias_map[alias] = table
                 alias_map[table] = table
 
-        # ── Phase 3: parse join conditions and add edges ─────────────────
+        # Phase 3: parse join conditions and add edges
         def _resolve(name: str) -> Optional[str]:
             """Map a SQL alias or table name to its graph-node identifier."""
             if name in alias_map:
