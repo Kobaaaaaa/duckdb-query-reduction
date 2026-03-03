@@ -18,9 +18,10 @@ class JoinGraph:
     """Represents the join graph of a query."""
     
     def __init__(self):
-        self.nodes = set()  # table names
+        self.nodes = set()  # table names (or aliases for self-join instances)
         self.edges = []  # list of (table1, table2, join_condition)
         self.aliases = {}  # table -> alias mapping
+        self.node_base_table = {}  # node_id -> actual DB table name (for self-joins)
 
     def add_node(self, table: str, alias: Optional[str] = None):
         """Add a table node to the graph, with optional alias."""
@@ -235,7 +236,12 @@ class QueryReducer:
         return self._extract_base_query(inner) # Returns the innermost subquery body that contains the base tables
 
     def parse_join_graph(self, query: str) -> JoinGraph:
-        """Extract join graph from query (tables, joins, and conditions)."""
+        """Extract join graph from query (tables, joins, and conditions).
+        
+        Supports self-joins: when the same table appears multiple times
+        (e.g., FROM employees e1 JOIN employees e2 ON e1.manager_id = e2.id),
+        each aliased occurrence becomes a distinct node in the join graph.
+        """
         graph = JoinGraph()
 
         # Normalize query structure for parsing
@@ -249,16 +255,20 @@ class QueryReducer:
             'SELECT', 'FROM', 'AS', 'SET', 'AND', 'OR', 'NOT',
         }
 
-        # Extract FROM clause (operates on the flattened query so that the inner
-        # FROM clauses inside subqueries are not accidentally matched
-        from_match = re.search(r'FROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', flat_query, re.IGNORECASE)
+        # ── Phase 1: collect all (table, alias, join_cond) references ────
+        # Scan the query first so we can detect self-joins (same table
+        # appearing more than once) before building the graph.
+        table_refs: List[Tuple[str, Optional[str], Optional[str]]] = []
+
+        from_match = re.search(
+            r'FROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', flat_query, re.IGNORECASE
+        )
         if from_match:
             table = from_match.group(1)
             raw_alias = from_match.group(2)
-            # Discard captured word if it is a SQL keyword
             alias = (raw_alias if raw_alias and raw_alias.upper() not in SQL_KEYWORDS
-                     else table)
-            graph.add_node(table, alias)
+                     else None)
+            table_refs.append((table, alias, None))
 
         # To find each JOIN block like: JOIN table_name [AS alias] ON <join condition>
         join_pattern = (
@@ -267,31 +277,75 @@ class QueryReducer:
             r'(?=\s+(?:INNER\s+)?JOIN\b|\s+WHERE\b|\s+GROUP\b'
             r'|\s+ORDER\b|\s+HAVING\b|\s+LIMIT\b|\s*$)'
         )
-
-        for match in re.finditer(join_pattern, flat_query, re.IGNORECASE | re.DOTALL):
-            table = match.group(1)
-            raw_alias = match.group(2)
-            # Discard captured word if it is a SQL keyword
+        for m in re.finditer(join_pattern, flat_query, re.IGNORECASE | re.DOTALL):
+            table = m.group(1)
+            raw_alias = m.group(2)
             alias = (raw_alias if raw_alias and raw_alias.upper() not in SQL_KEYWORDS
-                     else table)
-            join_cond = match.group(3).strip() # E.g. "a.id = b.author_id"
-            
-            graph.add_node(table, alias)
-            
-            # Parse join condition to find connected tables
-            # e.g., "a.id = b.id" -> connects tables with aliases a and b
-            # For parsing, strip CAST/TRY_CAST wrappers to handle:
-            # TRY_CAST(r.airline_id AS INTEGER) = TRY_CAST(al.airline_id AS INTEGER)
-            # But we keep the original join_cond for actual SQL execution (needs the casts)
-            clean_cond = re.sub(r'TRY_CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1', join_cond, flags=re.IGNORECASE)
-            clean_cond = re.sub(r'CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1', clean_cond, flags=re.IGNORECASE)
+                     else None)
+            table_refs.append((table, alias, m.group(3).strip()))
+
+        # Detect self-joins (same table name appearing more than once)
+        _tbl_counts: Dict[str, int] = defaultdict(int)
+        for tbl, _, _ in table_refs:
+            _tbl_counts[tbl] += 1
+        self_join_tables = {t for t, c in _tbl_counts.items() if c > 1}
+
+        # ── Phase 2: register nodes ──────────────────────────────────────
+        # For self-joined tables each occurrence becomes its own node
+        # (named by its SQL alias).  For normal tables the node name
+        # is the table name itself, preserving backward compatibility.
+        #
+        # alias_map: every SQL alias / bare table-name that can appear in
+        #            a join condition  ──>  graph node identifier
+        alias_map: Dict[str, str] = {}
+
+        for table, alias, _ in table_refs:
+            if table in self_join_tables:
+                # Self-join: each occurrence gets its own node (named by alias)
+                node = alias if alias else table
+                # Ensure uniqueness if alias is missing or collides
+                if node in graph.nodes:
+                    sfx = 2
+                    while f"{node}_{sfx}" in graph.nodes:
+                        sfx += 1
+                    node = f"{node}_{sfx}"
+                graph.nodes.add(node)
+                graph.node_base_table[node] = table
+                if alias:
+                    alias_map[alias] = node
+            else:
+                graph.nodes.add(table)
+                graph.node_base_table[table] = table
+                if alias and alias != table:
+                    graph.aliases[table] = alias
+                    alias_map[alias] = table
+                alias_map[table] = table
+
+        # ── Phase 3: parse join conditions and add edges ─────────────────
+        def _resolve(name: str) -> Optional[str]:
+            """Map a SQL alias or table name to its graph-node identifier."""
+            if name in alias_map:
+                return alias_map[name]
+            if name in graph.nodes:
+                return name
+            return self._alias_to_table(name, graph)
+
+        for table, alias, join_cond in table_refs:
+            if join_cond is None:
+                continue  # FROM table, no condition
+
+            # Strip CAST/TRY_CAST wrappers for parsing (keep original for execution)
+            clean_cond = re.sub(r'TRY_CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1',
+                                join_cond, flags=re.IGNORECASE)
+            clean_cond = re.sub(r'CAST\((\w+\.\w+)\s+AS\s+\w+\)', r'\1',
+                                clean_cond, flags=re.IGNORECASE)
             cond_parts = re.findall(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', clean_cond)
+
             for alias1, col1, alias2, col2 in cond_parts:
-                t1 = self._alias_to_table(alias1, graph)
-                t2 = self._alias_to_table(alias2, graph)
+                t1 = _resolve(alias1)
+                t2 = _resolve(alias2)
                 if t1 and t2:
-                    # Normalize condition to use table names instead of aliases
-                    # E.g. "b.id = a.id" becomes "books.id = authors.id" if b->books, a->authors
+                    # Normalize condition to use node names instead of aliases
                     cond_normalized = re.sub(
                         rf'\b{re.escape(alias1)}\.', f'{t1}.', join_cond
                     )
@@ -299,7 +353,7 @@ class QueryReducer:
                         rf'\b{re.escape(alias2)}\.', f'{t2}.', cond_normalized
                     )
                     graph.add_edge(t1, t2, cond_normalized)
-        
+
         return graph
     
     def _alias_to_table(self, alias: str, graph: JoinGraph) -> Optional[str]:
@@ -317,6 +371,27 @@ class QueryReducer:
         if alias in graph.nodes:
             return alias
         return None
+    
+    def _prepare_self_join_tables(self, graph: JoinGraph):
+        """
+        For self-join nodes (where the node name differs from the base DB
+        table), create a copy of the base table under the node name so that
+        semi-join operations can run against distinct physical tables.
+
+        Example: FROM employees e1 JOIN employees e2 ON …
+          -> creates table "e1" as copy of employees
+          -> creates table "e2" as copy of employees
+        """
+        for node, base_table in graph.node_base_table.items():
+            if node != base_table:
+                try:
+                    self.conn.execute(f'DROP TABLE IF EXISTS "{node}"')
+                    self.conn.execute(
+                        f'CREATE TABLE "{node}" AS SELECT * FROM {base_table}'
+                    )
+                except Exception as e:
+                    print(f"⚠ Error creating self-join copy {node} "
+                          f"(from {base_table}): {e}")
     
     def semi_join(self, left_table: str, right_table: str, join_condition: str):
         """
@@ -399,6 +474,11 @@ class QueryReducer:
                 graph.nodes.remove(table1)
                 graph.nodes.remove(table2)
                 graph.nodes.add(joined_name)
+                
+                # Maintain node_base_table for the merged node
+                graph.node_base_table[joined_name] = joined_name
+                graph.node_base_table.pop(table1, None)
+                graph.node_base_table.pop(table2, None)
                 
                 # Update edges: drop the edge between the two folded tables,
                 # redirect remaining edges to the joined table, and rewrite
@@ -519,9 +599,12 @@ class QueryReducer:
         
         reductions = {}
         for table in graph.nodes:
-            original_size = self.table_sizes.get(table, 0)
+            # For self-join nodes the graph node name is the alias (e.g. "e1")
+            # but the original size is stored under the base table name.
+            base = graph.node_base_table.get(table, table)
+            original_size = self.table_sizes.get(base, 0)
             try:
-                reduced_size = self.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                reduced_size = self.conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
             except:
                 reduced_size = 0
             
@@ -870,6 +953,9 @@ class QueryReducer:
             print("No tables found in query")
             return
         
+        # Prepare self-join table copies (if any)
+        self._prepare_self_join_tables(graph)
+        
         # Step 3: Handle cyclic graphs by folding
         if graph.is_cyclic():
             print(f"Join graph is CYCLIC ({len(graph.edges)} edges, {len(graph.nodes)} nodes)")
@@ -902,7 +988,10 @@ class QueryReducer:
         
         for table in sorted(reductions.keys()):
             original, reduced, pct = reductions[table]
-            print(f"{table:<20} {original:<12,} {reduced:<12,} {pct:>10.2f}%")
+            # For self-join nodes, show base table name alongside the alias
+            base = graph.node_base_table.get(table, table)
+            display = f"{base} ({table})" if base != table else table
+            print(f"{display:<20} {original:<12,} {reduced:<12,} {pct:>10.2f}%")
             total_original += original
             total_reduced += reduced
         
