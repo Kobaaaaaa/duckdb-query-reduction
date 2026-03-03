@@ -30,7 +30,16 @@ class JoinGraph:
             self.aliases[table] = alias
 
     def add_edge(self, table1: str, table2: str, condition: str):
-        """Add an edge (join) between two tables."""
+        """Add an edge (join) between two tables.
+        
+        Duplicate edges between the same pair of nodes are ignored to
+        prevent multi-condition JOINs (e.g. ON a.x = b.x AND a.y = b.y)
+        from causing false cycle detection.
+        """
+        pair = frozenset((table1, table2))
+        for t1, t2, _ in self.edges:
+            if frozenset((t1, t2)) == pair:
+                return  # edge already exists for this pair
         self.edges.append((table1, table2, condition))
         
     def is_cyclic(self) -> bool:
@@ -145,9 +154,14 @@ class QueryReducer:
     
     def _flatten_subqueries(self, query: str) -> str:
         """
-        Replace the bodies of all nested parenthesised subqueries with the
-        placeholder token ``_sq_`` so that regex-based parsing can safely
-        operate on the top-level SQL structure only.
+        Replace only true parenthesised *subqueries* (those whose body
+        starts with ``SELECT``) with the placeholder token ``_sq_`` so
+        that regex-based parsing can safely operate on the top-level SQL
+        structure only.
+
+        Non-subquery parenthesised expressions—such as
+        ``TRY_CAST(r.airline_id AS INTEGER)``—are left intact so that
+        join-condition parsing can still extract table/column references.
 
         Example:
             ``FROM (SELECT * FROM foo) t  JOIN bar ON ...``
@@ -155,17 +169,37 @@ class QueryReducer:
             ``FROM (_sq_) t  JOIN bar ON ...``
         """
         result = []
-        depth = 0
-        for c in query:
-            if c == '(':
-                if depth == 0:
-                    result.append('(_sq_)') # placeholder for the whole subquery group
-                depth += 1
-            elif c == ')':
-                depth -= 1
+        i = 0
+        while i < len(query):
+            if query[i] == '(':
+                # Peek ahead (skipping whitespace) to see if this
+                # parenthesised group starts with SELECT.
+                j = i + 1
+                while j < len(query) and query[j] in ' \t\n\r':
+                    j += 1
+                is_subquery = (
+                    j + 6 <= len(query)
+                    and query[j:j + 6].upper() == 'SELECT'
+                    and (j + 6 >= len(query) or not query[j + 6].isalpha())
+                )
+                if is_subquery:
+                    # Find the matching closing parenthesis.
+                    depth = 1
+                    k = i + 1
+                    while k < len(query) and depth > 0:
+                        if query[k] == '(':
+                            depth += 1
+                        elif query[k] == ')':
+                            depth -= 1
+                        k += 1
+                    result.append('(_sq_)')
+                    i = k          # skip past the closing ')'
+                else:
+                    result.append('(')
+                    i += 1
             else:
-                if depth == 0:
-                    result.append(c)
+                result.append(query[i])
+                i += 1
         return ''.join(result)
 
     def _extract_base_query(self, query: str) -> str:
@@ -243,6 +277,10 @@ class QueryReducer:
         each aliased occurrence becomes a distinct node in the join graph.
         """
         graph = JoinGraph()
+
+        # Strip SQL line-comments so that words inside comments
+        # (e.g. "-- ... from its ...") are not mistaken for table names.
+        query = re.sub(r'--[^\n]*', '', query)
 
         # Normalize query structure for parsing
         query = self._extract_base_query(query)
@@ -785,19 +823,26 @@ class QueryReducer:
         conditions = re.split(r'\bAND\b', where_body, flags=re.IGNORECASE)
         conditions = [c.strip() for c in conditions if c.strip()]
 
+        # Build the complete set of identifiers (aliases + node names) that
+        # can appear as ``identifier.column`` in WHERE conditions.  This is
+        # needed so cross-table predicates like ``al.country != ap.country``
+        # are correctly recognised even when ``ap`` is a self-join node name
+        # rather than a classic alias stored in graph.aliases.
+        all_identifiers: Set[str] = set(graph.aliases.values()) | graph.nodes
+
         # Process tables that have an explicit alias
         for table, alias in graph.aliases.items():
             alias_pat = rf'\b{re.escape(alias)}\.'
-            other_aliases = [a for t, a in graph.aliases.items() if t != table and a != alias]
+            other_ids = [oid for oid in all_identifiers if oid != alias]
             
-            # Collect conditions that apply only to this table (no other aliases)
+            # Collect conditions that apply only to this table (no other aliases/nodes)
             local_conditions = []
             for cond in conditions:
                 # Check if this condition references this alias
                 if re.search(alias_pat, cond, re.IGNORECASE):
-                    # Check if it also references other aliases (would be a join condition)
-                    has_other = any(re.search(rf'\b{re.escape(oa)}\.', cond, re.IGNORECASE)
-                                  for oa in other_aliases)
+                    # Check if it also references other aliases or nodes (would be a cross-table condition)
+                    has_other = any(re.search(rf'\b{re.escape(oid)}\.', cond, re.IGNORECASE)
+                                  for oid in other_ids)
                     if not has_other:
                         local_conditions.append(cond)
             
